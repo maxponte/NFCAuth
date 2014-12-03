@@ -1,8 +1,6 @@
 package com.ponte.nfcauth;
 
 import android.app.Activity;
-import android.content.Context;
-import android.content.Intent;
 import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
 import android.nfc.NfcAdapter;
@@ -14,15 +12,73 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 
+import org.spongycastle.util.io.pem.PemObject;
+import org.spongycastle.util.io.pem.PemWriter;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.StringWriter;
 import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+
+import java.security.PublicKey;
+import java.security.Security;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.HashMap;
+import java.util.Map;
 
 import static android.nfc.NfcAdapter.*;
 
-
 public class Home extends Activity implements CreateNdefMessageCallback, OnNdefPushCompleteCallback {
+
+    static {
+        Security.insertProviderAt(new org.spongycastle.jce.provider.BouncyCastleProvider(), 1);
+    }
+
+    Map<String, PublicKey> publicKeyOfUser;
+
+    public enum Mode {
+        NEWUSER, LOGIN
+    }
+
+    private Mode mode = Mode.LOGIN;
+
+    public Mode getMode() {
+        return mode;
+    }
+
+    public void setMode(Mode m) {
+        mode = m;
+    }
+
+    public void loginMode(View v) {
+        Log.d("mode", "New mode: LOGIN");
+        setMode(Mode.LOGIN);
+    }
+
+    public void newUserMode(View v) {
+        Log.d("mode", "New mode: NEWUSER");
+        setMode(Mode.NEWUSER);
+    }
+
+    public void mkKeyPair(View v) {
+        Log.d("swag", "yolo");
+    }
 
     public void lol(View v) {
         NfcAdapter nfc = getDefaultAdapter(this);
@@ -39,6 +95,10 @@ public class Home extends Activity implements CreateNdefMessageCallback, OnNdefP
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
+
+        AccountController ac = new AccountController(getApplicationContext());
+
+        publicKeyOfUser = ac.getKeyMap();
 
         NfcAdapter adapter = NfcAdapter.getDefaultAdapter(this);
         adapter.setNdefPushMessageCallback (this, this);
@@ -58,16 +118,74 @@ public class Home extends Activity implements CreateNdefMessageCallback, OnNdefP
         return keyPair;
     }
 
+    private String username;
+    private EditText usernameField;
+
+    public void setUsername() {
+        //get the value of  atext field
+        usernameField = (EditText)findViewById(R.id.usernameField);
+        username = usernameField.getText().toString().trim().replaceAll(" ", "_");
+    }
+
+    public void addUserPKPair(PublicKey publicKey) throws IOException {
+        setUsername();
+        Account a = new Account(username, publicKey);
+        AccountController ac = new AccountController(getApplicationContext());
+        boolean createSuccessful = ac.create(a);
+        if (createSuccessful) {
+            Log.d("a", "Created new account.");
+        }
+        publicKeyOfUser.put(username, publicKey);
+    }
+
+    public NdefMessage newUserMessage() throws IOException {
+        KeyPair keyPair = generateKeys();
+        PublicKey publicKey = keyPair.getPublic();
+        StringWriter sw = new StringWriter();
+        PemWriter pr = new PemWriter(sw);
+        pr.writeObject(new PemObject("PUBLIC KEY", keyPair.getPrivate().getEncoded()));
+        pr.flush();
+        pr.close();
+        addUserPKPair(publicKey);
+        Log.d("nfc", "Created Keypair. Sending private key...");
+        //String swag = Base64.encodeToString(publicKey, Base64.NO_WRAP);
+        String prefix = username + "\n";
+        String swag = prefix + sw.toString();
+        Log.d("pubkey", swag);
+        return new NdefMessage(NdefRecord.createMime("text/plain", swag.getBytes()));
+    }
+
+    public NdefMessage newLoginMessage() throws InvalidKeyException,NoSuchAlgorithmException,NoSuchPaddingException,IllegalBlockSizeException,BadPaddingException,IOException,NoSuchProviderException {
+        setUsername();
+        PublicKey publicKey = publicKeyOfUser.get(username);
+        if (publicKey != null) {
+            Log.d("GU¢¢I MANE!!!", "I think the PK is " + Base64.encodeToString(publicKey.getEncoded(), Base64.NO_WRAP) + "and the username is " + username);
+            Cipher c = Cipher.getInstance("RSA");
+            c.init(Cipher.ENCRYPT_MODE, publicKey);
+            byte[] encryptedBytes = c.doFinal("shabba".getBytes());
+            String prefix = username + "\n";
+            ByteArrayOutputStream bao = new ByteArrayOutputStream();
+            bao.write(prefix.getBytes());
+            bao.write(encryptedBytes);
+            return new NdefMessage(NdefRecord.createMime("text/plain", bao.toByteArray()));
+        } else {
+            String lolwemessduplol = "We're sorry, we had a team of monkeys working on this issue, but they escaped from their cage.";
+            return new NdefMessage(NdefRecord.createMime("text/plain", lolwemessduplol.getBytes()));
+        }
+    }
+
     @Override
     public NdefMessage createNdefMessage(NfcEvent event) {
         Log.d("nfc", "send message callback executed");
-        KeyPair keyPair = generateKeys();
-        byte[] publicKey = keyPair.getPublic().getEncoded();
-        byte[] privateKey = keyPair.getPrivate().getEncoded();
-        Log.d("nfc", "created keypair");
-        NdefRecord uriRecord = NdefRecord.createUri("protocol:"+Base64.encodeToString(privateKey, Base64.NO_WRAP));
-        NdefMessage message = new NdefMessage(new NdefRecord[] { uriRecord });
-        return message;
+        NdefMessage msg;
+        try {
+            msg = getMode() == Mode.NEWUSER ? newUserMessage() : newLoginMessage();
+        } catch (Exception e) {
+            e.printStackTrace();
+            String errmsg = "There was an error.";
+            msg = new NdefMessage(NdefRecord.createMime("text/plain", errmsg.getBytes()));
+        }
+        return msg;
     }
 
     @Override
@@ -93,4 +211,5 @@ public class Home extends Activity implements CreateNdefMessageCallback, OnNdefP
         }
         return super.onOptionsItemSelected(item);
     }
+
 }

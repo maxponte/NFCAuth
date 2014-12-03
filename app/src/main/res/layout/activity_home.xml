@@ -12,8 +12,39 @@
         android:id="@+id/button_id"
         android:layout_height="wrap_content"
         android:layout_width="wrap_content"
-        android:text="Send message"
+        android:text="Log NFC Status"
         android:onClick="lol"
         ></Button>
+    <Button
+        android:id="@+id/add_key"
+        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        android:text="Create new SQLite row"
+        android:onClick="mkKeyPair"
+        android:layout_below="@id/button_id"
+        ></Button>
+    <Button
+        android:id="@+id/newuser"
+        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        android:text="Mode: Tap to register a new account"
+        android:onClick="newUserMode"
+        android:layout_below="@id/add_key"
+        ></Button>
+    <Button
+        android:id="@+id/login"
+        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        android:text="Mode:Tap to unlock"
+        android:onClick="loginMode"
+        android:layout_below="@id/newuser"
+        ></Button>
+
+    <EditText
+        android:id="@+id/usernameField"
+        android:layout_below="@id/login"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        />
 
 </RelativeLayout>
